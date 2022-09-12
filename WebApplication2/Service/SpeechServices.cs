@@ -1,43 +1,38 @@
 ﻿using System;
+using System.ComponentModel.DataAnnotations;
 using System.IO;
-using System.Speech.AudioFormat;
-using System.Speech.Synthesis;
 using System.Text;
-using WebApplication2.SpeechService;
+using System.Threading.Tasks;
+using Microsoft.CognitiveServices.Speech;
 using Microsoft.Extensions.Configuration;
-using System.Collections.Generic;
-using Microsoft.Win32;
-using System.Security.AccessControl;
-using System.Globalization;
+using WebApplication2.SpeechService;
 
-public enum Voices
-{
-    Helena= 1,
-    Laura = 2,
-    Pablo = 3,
-    Raul = 4,
-    Sabina = 5,
-}
 
 namespace WebApplication2.Service
 {
+
     public class SpeechServices : ISpeechServices
     {
+        // Interface para obtener las variables de la configuración del appsetting
         public IConfiguration Configuration { get; }
-
-
+        // Credenciales Speech para utilizar el servicio
+        static string YourSubscriptionKey;
+        static string YourServiceRegion;
         public SpeechServices(IConfiguration configuration)
         {
             Configuration = configuration;
-
+            YourSubscriptionKey = Configuration.GetSection("YourSubscriptionKey").Value;
+            YourServiceRegion = Configuration.GetSection("YourServiceRegion").Value;
         }
 
-
-        public void TextToSpeech(String message)
+        // Función para utilizar el servicio
+        public async void TextToSpeech(string message)
         {
-            // GET values 
+            // Obtenemos los valores de la configuración
             string path = Configuration.GetSection("PathToSave").Value;
-            int voice = Int32.Parse(Configuration.GetSection("Voice").Value);
+            string voice = Configuration.GetSection("Voice").Value;
+            string rate = Configuration.GetSection("Rate").Value;
+            string volume = Configuration.GetSection("Volume").Value;
 
             // Create the file, or overwrite if the file exists.
             using (FileStream fs = File.Create(path))
@@ -47,36 +42,41 @@ namespace WebApplication2.Service
                 fs.Write(info, 0, info.Length);
             }
 
-            // Initialize a new instance of the SpeechSynthesizer.
-            using (SpeechSynthesizer synth = new SpeechSynthesizer())
+
+            var speechConfig = SpeechConfig.FromSubscription(YourSubscriptionKey, YourServiceRegion);
+
+            // Output Format
+            speechConfig.SetSpeechSynthesisOutputFormat(SpeechSynthesisOutputFormat.Riff8Khz16BitMonoPcm);
+            // The language of the voice that speaks.
+            speechConfig.SpeechSynthesisVoiceName = voice;
+            
+            using (var speechSynthesizer = new SpeechSynthesizer(speechConfig))
             {
+                // Se arma la estructura de cuerpo en SSML
+                string str = "<speak version=\"1.0\"";
+                str += " xmlns=\"http://www.w3.org/2001/10/synthesis\"";
+                str += " xml:lang=\"en-US\">";
+                str += "<voice name='";
+                str += voice;
+                str += "'> ";
+                str += "<prosody rate='";
+                str += rate;
+                str += "' volume='";
+                str += volume;
+                //str += "' contour='(80%,-30%) (100%,+80%)";
+                str += "'>";
+                str += message;
+                str += "</prosody>";
+                str += "</voice>";
+                str += "</speak>";
 
-                //synth.SelectVoice("Microsoft Raul Desktop");
+                // Primero habla el bot y luego se almacena
+                var speechSynthesisResult = await speechSynthesizer.SpeakSsmlAsync(str);
 
-                synth.SelectVoice("Microsoft "+((Voices)voice).ToString());
-
-
-                // Configure the audio output.   
-                synth.SetOutputToWaveFile(path,
-                  new SpeechAudioFormatInfo(8000, AudioBitsPerSample.Sixteen, AudioChannel.Mono));
-                // Create a SoundPlayer instance to play output audio file.  
-                System.Media.SoundPlayer m_SoundPlayer =
-                  new System.Media.SoundPlayer(path);
-
-                // Build a prompt.  
-                PromptBuilder builder = new PromptBuilder();
-                builder.AppendText(message);
-                
-
-                // Speak the prompt.  
-                synth.Speak(builder);
-                
-                m_SoundPlayer.Play();
+                // Guardado del audio en la ruta indicada
+                var stream = AudioDataStream.FromResult(speechSynthesisResult);
+                await stream.SaveToWaveFileAsync(path);
             }
-
         }
-
-
-
     }
 }
